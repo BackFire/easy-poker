@@ -1,0 +1,24 @@
+services:
+  api:
+    image: node:22-bookworm-slim
+    container_name: easy-poker-api
+    working_dir: /app
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - ./node_modules/.bin/wrangler
+      - dev
+      - --config
+      - wrangler.toml
+      - --ip
+      - 127.0.0.1
+      - --port
+      - "18789"
+      - --inspector-port
+      - "19229"
+      - --persist-to
+      - .wrangler/state
+    environment:
+      WRANGLER_SEND_METRICS: "false"
+    volumes:
+      - ./:/app

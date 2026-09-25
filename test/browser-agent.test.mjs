@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentContext, apiUrl, gameWsUrl, legalMove, modelTransport, PROMPTS } from "../public/js/agent-core.js";
+import { agentContext, apiUrl, decide, gameWsUrl, legalMove, modelTransport, PROMPTS } from "../public/js/agent-core.js";
+import { BrowserAiAgents } from "../public/js/ai-agents.js";
 
 test("browser AI clamps model output to the legal action", () => {
   const legal = { canFold: true, canCheck: false, canCall: true, canBet: false, canRaise: true, canAllIn: true, minRaiseTo: 8, maxRaiseTo: 100 };
@@ -22,6 +23,38 @@ test("browser AI can route a model request through the game proxy", () => {
     url: "https://poker.example/api/model-proxy",
     body: { url: "https://models.example/v1/responses", body },
   });
+});
+
+test("local Codex profile uses the site origin and leaves site authentication intact", async () => {
+  const previous = { location: globalThis.location, localStorage: globalThis.localStorage, fetch: globalThis.fetch };
+  try {
+    globalThis.location = { origin: "https://k.amoy.work" };
+    globalThis.localStorage = { getItem: () => null };
+    const agents = new BrowserAiAgents(() => "https://k.amoy.work");
+    await agents.attach("123456", "password");
+    const profile = agents.profiles[0];
+    assert.equal(profile.model, "gpt-6-luna");
+    assert.equal(profile.baseUrl, "https://k.amoy.work/ai");
+    assert.equal(agents.getProfiles()[0].apiKey, undefined);
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, "https://k.amoy.work/ai/v1/responses");
+      assert.equal(options.headers.authorization, undefined);
+      return Response.json({ output: [{ content: [{ type: "output_text", text: '{"action":"check"}' }] }] });
+    };
+    const move = await decide({
+      config: { smallBlind: 1, bigBlind: 2, shortDeck: false },
+      me: { id: "bot", holeCards: ["As", "Kd"] },
+      seats: [{ playerId: "bot", inHand: true, chips: 100, bet: 0, isButton: true, isSb: true, isBb: true }],
+      street: "preflop", board: [], pot: 3,
+      legal: { canCheck: true },
+    }, "experienced", profile);
+    assert.deepEqual(move, { action: "check" });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  }
 });
 
 test("browser AI receives factual position, stack, player count, and street action context", () => {

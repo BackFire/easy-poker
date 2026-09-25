@@ -958,7 +958,7 @@ function renderAiList() {
 function renderAiProfiles() {
   const profiles = aiAgents.getProfiles();
   $("ai-profile-list").innerHTML = profiles.length
-    ? profiles.map((profile) => `<div class="ai-item"><div class="ai-item-title"><strong>${escapeHtml(profile.name)}</strong><span>${escapeHtml(profile.model)} · ${escapeHtml(profile.keyLabel)}${profile.useProxy ? " · 游戏代理" : ""}</span></div><div class="ai-item-actions"><button type="button" class="ghost sm" data-profile-edit="${escapeHtml(profile.id)}">编辑</button><button type="button" class="ghost sm danger" data-profile-remove="${escapeHtml(profile.id)}">删除</button></div></div>`).join("")
+    ? profiles.map((profile) => `<div class="ai-item"><div class="ai-item-title"><strong>${escapeHtml(profile.name)}</strong><span>${escapeHtml(profile.model)} · ${escapeHtml(profile.keyLabel)}${profile.useProxy ? " · 游戏代理" : ""}</span></div>${profile.builtIn ? "" : `<div class="ai-item-actions"><button type="button" class="ghost sm" data-profile-edit="${escapeHtml(profile.id)}">编辑</button><button type="button" class="ghost sm danger" data-profile-remove="${escapeHtml(profile.id)}">删除</button></div>`}</div>`).join("")
     : '<div class="ai-empty">还没有模型配置</div>';
 }
 

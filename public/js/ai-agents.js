@@ -4,6 +4,20 @@ const PROFILES_KEY = "easy-poker.ai.profiles.v1";
 const TABLES_KEY = "easy-poker.ai.tables.v1";
 const DB_NAME = "easy-poker-ai";
 const DB_STORE = "keys";
+const LOCAL_PROFILE_ID = "codex-luna-local";
+
+function localProfile() {
+  return {
+    id: LOCAL_PROFILE_ID,
+    keyLabel: "Codex",
+    name: "本机 Codex",
+    baseUrl: `${location.origin}/ai`,
+    model: "gpt-6-luna",
+    useProxy: false,
+    builtIn: true,
+    apiKey: "local",
+  };
+}
 
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; }
@@ -82,10 +96,11 @@ export class BrowserAiAgents {
     this.tableNumber = tableNumber;
     this.password = password;
     const stored = readJson(PROFILES_KEY, { version: 1, profiles: [] }).profiles ?? [];
-    this.profiles = await Promise.all(stored.map(async (profile) => {
+    const profiles = await Promise.all(stored.filter((profile) => profile.id !== LOCAL_PROFILE_ID).map(async (profile) => {
       try { return { ...profile, apiKey: await decryptSecret(profile) }; }
       catch { return { ...profile, apiKey: "", decryptError: true }; }
     }));
+    this.profiles = [localProfile(), ...profiles];
     const tables = readJson(TABLES_KEY, { version: 1, tables: {} }).tables ?? {};
     this.bots = tables[tableNumber] ?? [];
     this.onChange();
@@ -120,6 +135,7 @@ export class BrowserAiAgents {
   }
 
   async saveProfile(input) {
+    if (input.id === LOCAL_PROFILE_ID) throw new Error("本机 Codex 配置不可编辑");
     const baseUrl = input.baseUrl.trim().replace(/\/$/, "");
     const parsed = new URL(baseUrl);
     if (!/^https?:$/.test(parsed.protocol)) throw new Error("Base URL 必须使用 HTTP 或 HTTPS");
@@ -147,6 +163,7 @@ export class BrowserAiAgents {
   }
 
   removeProfile(id) {
+    if (id === LOCAL_PROFILE_ID) throw new Error("本机 Codex 配置不可删除");
     const tables = readJson(TABLES_KEY, { version: 1, tables: {} }).tables ?? {};
     if (Object.values(tables).some((bots) => bots.some((bot) => bot.profileId === id))) {
       throw new Error("该模型配置仍被 AI 玩家使用");
@@ -197,7 +214,7 @@ export class BrowserAiAgents {
   }
 
   persistProfiles() {
-    const profiles = this.profiles.map(({ apiKey, decryptError, ...profile }) => profile);
+    const profiles = this.profiles.filter((profile) => !profile.builtIn).map(({ apiKey, decryptError, ...profile }) => profile);
     writeJson(PROFILES_KEY, { version: 1, profiles });
   }
 
