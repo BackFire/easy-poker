@@ -1,4 +1,4 @@
-import { decide, gameWsUrl, legalMove, PROMPTS, PROMPT_LABELS } from "./agent-core.js";
+import { decide, gameWsUrl, PROMPTS, PROMPT_LABELS } from "./agent-core.js";
 
 const PROFILES_KEY = "easy-poker.ai.profiles.v1";
 const TABLES_KEY = "easy-poker.ai.tables.v1";
@@ -326,7 +326,7 @@ export class BrowserAiAgents {
 
   async ensureSeated(runtime) {
     const snap = runtime.snapshot;
-    if (runtime.stopped || !snap || snap.status === "finished" || snap.me?.sitting || runtime.seating || Date.now() < runtime.retryAt) return;
+    if (runtime.stopped || runtime.modelFailed || !snap || snap.status === "finished" || snap.me?.sitting || runtime.seating || Date.now() < runtime.retryAt) return;
     runtime.seating = true;
     runtime.retryAt = Date.now() + 3000;
     try {
@@ -350,7 +350,7 @@ export class BrowserAiAgents {
 
   async handleSnapshot(runtime, snapshot) {
     runtime.snapshot = snapshot;
-    if (runtime.stopped || snapshot.status === "finished") return;
+    if (runtime.stopped || runtime.modelFailed || snapshot.status === "finished") return;
     if (snapshot.me?.chips || snapshot.me?.pendingChips) runtime.rebuying = false;
     if (!snapshot.me?.sitting) {
       await this.ensureSeated(runtime);
@@ -379,16 +379,21 @@ export class BrowserAiAgents {
     runtime.abortController = new AbortController();
     const profile = this.profiles.find((item) => item.id === runtime.bot.profileId);
     let move;
-    let modelError = false;
     try {
       if (!profile?.apiKey) throw new Error("模型配置无法解密");
       const config = profile.useProxy ? { ...profile, proxyOrigin: await this.getApiOrigin() } : profile;
       move = await decide(snapshot, runtime.bot.level, config, runtime.abortController.signal);
     } catch (err) {
+      runtime.busy = false;
       if (runtime.stopped || err.name === "AbortError") return;
-      modelError = true;
-      move = legalMove({}, snapshot.legal);
-      this.setStatus(runtime, "连接异常", "模型请求失败");
+      runtime.modelFailed = true;
+      const detail = err.name === "TimeoutError" ? "模型请求超时" : err.message || "模型请求失败";
+      this.setStatus(runtime, "模型异常", err.status ? `HTTP ${err.status}: ${detail}` : detail);
+      try {
+        await this.gameApi("/api/cmd", { type: "stand", tableNumber: this.tableNumber, playerId: runtime.bot.playerId, nickname: runtime.bot.nickname }, runtime.lifecycleController.signal);
+      } catch { /* the game server will eventually time out this seat */ }
+      this.stop(runtime);
+      return;
     } finally {
       runtime.abortController = null;
     }
@@ -398,7 +403,7 @@ export class BrowserAiAgents {
       if (runtime.stopped || currentTurn !== turn || current?.actingPlayerId !== runtime.bot.playerId) return;
       const data = await this.gameApi("/api/cmd", { type: "action", ...move, tableNumber: this.tableNumber, playerId: runtime.bot.playerId, nickname: runtime.bot.nickname }, runtime.lifecycleController.signal);
       runtime.snapshot = data.snapshot;
-      if (!modelError) this.setStatus(runtime, "运行中");
+      this.setStatus(runtime, "运行中");
     } catch (err) {
       runtime.lastTurn = "";
       this.setStatus(runtime, "连接异常", this.safeError(err, "行动提交失败"));

@@ -126,7 +126,10 @@ async function request(url, body, config, signal) {
   let data;
   try { data = JSON.parse(text); }
   catch { throw Object.assign(new Error(`模型 API 返回非 JSON（HTTP ${res.status}）`), { status: res.status }); }
-  if (!res.ok) throw Object.assign(new Error(data.error?.message ?? `HTTP ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    const detail = [data.error?.code, data.error?.message?.trim()].filter(Boolean).join(": ");
+    throw Object.assign(new Error(detail || `HTTP ${res.status}`), { status: res.status });
+  }
   return data;
 }
 
@@ -144,5 +147,6 @@ export async function decide(snapshot, level, config, signal) {
     const data = await request(apiUrl(baseUrl, "chat/completions"), { model, messages: [{ role: "system", content: instruction }, { role: "user", content: input }] }, config, signal);
     result = data.choices?.[0]?.message?.content;
   }
+  if (typeof result !== "string" || !result.trim()) throw new Error("模型返回空内容");
   return legalMove(result, snapshot.legal);
 }

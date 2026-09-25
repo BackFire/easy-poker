@@ -60,6 +60,60 @@ test("local Codex profile requires a token and sends it only to the model endpoi
   }
 });
 
+test("browser AI reports model failure without submitting a default action", async () => {
+  const previousFetch = globalThis.fetch;
+  let requests = 0;
+  const commands = [];
+  try {
+    globalThis.fetch = async () => {
+      requests++;
+      return Response.json({ error: { code: "model_not_found", message: "模型不可用" } }, { status: 403 });
+    };
+    const agents = new BrowserAiAgents(async () => "https://poker.example");
+    agents.tableNumber = "123456";
+    agents.profiles = [{ id: "model", apiKey: "test-token", baseUrl: "https://poker.example/ai", model: "gpt-6-luna" }];
+    agents.gameApi = async (_path, body) => { commands.push(body.type); return { snapshot: {} }; };
+    const runtime = {
+      bot: { playerId: "bot", profileId: "model", level: "experienced", nickname: "AI" },
+      stopped: false, busy: false, lastTurn: "", status: "运行中", lifecycleController: new AbortController(),
+    };
+    const snapshot = {
+      config: { smallBlind: 1, bigBlind: 2, shortDeck: false },
+      me: { id: "bot", sitting: true, chips: 100, holeCards: ["As", "Kd"] },
+      seats: [{ playerId: "bot", inHand: true, chips: 100, bet: 0 }],
+      street: "preflop", board: [], pot: 3, handNumber: 1, actionDeadline: 12345,
+      actingPlayerId: "bot", legal: { canCheck: true },
+    };
+    await agents.handleSnapshot(runtime, snapshot);
+    assert.equal(requests, 1);
+    assert.deepEqual(commands, ["stand"]);
+    assert.equal(runtime.busy, false);
+    assert.equal(runtime.modelFailed, true);
+    assert.equal(runtime.stopped, true);
+    assert.equal(runtime.status, "模型异常");
+    assert.equal(runtime.error, "HTTP 403: model_not_found: 模型不可用");
+    await agents.handleSnapshot(runtime, snapshot);
+    assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("browser AI rejects an empty model response", async () => {
+  const previousFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({ output: [] });
+    await assert.rejects(decide({
+      config: { smallBlind: 1, bigBlind: 2, shortDeck: false },
+      me: { id: "bot", holeCards: ["As", "Kd"] },
+      seats: [{ playerId: "bot", inHand: true, chips: 100, bet: 0 }],
+      street: "preflop", board: [], pot: 3, legal: { canCheck: true },
+    }, "experienced", { apiKey: "test-token", baseUrl: "https://poker.example/ai", model: "gpt-6-luna" }), /模型返回空内容/);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("browser AI receives factual position, stack, player count, and street action context", () => {
   const seat = (playerId, chips, flags = {}) => ({ playerId, nickname: playerId, chips, bet: 0, folded: false, allIn: false, inHand: true, ...flags });
   const seats = [seat("hero", 200, { isButton: true }), seat("sb", 100, { isSb: true }), seat("bb", 400, { isBb: true }), seat("utg", 300), seat("co", 80), null, null, null];
