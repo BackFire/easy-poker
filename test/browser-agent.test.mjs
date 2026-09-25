@@ -25,7 +25,7 @@ test("browser AI can route a model request through the game proxy", () => {
   });
 });
 
-test("local Codex profile uses the site origin and leaves site authentication intact", async () => {
+test("local Codex profile requires a token and sends it only to the model endpoint", async () => {
   const previous = { location: globalThis.location, localStorage: globalThis.localStorage, fetch: globalThis.fetch };
   try {
     globalThis.location = { origin: "https://k.amoy.work" };
@@ -36,9 +36,12 @@ test("local Codex profile uses the site origin and leaves site authentication in
     assert.equal(profile.model, "gpt-6-luna");
     assert.equal(profile.baseUrl, "https://k.amoy.work/ai");
     assert.equal(agents.getProfiles()[0].apiKey, undefined);
+    assert.equal(agents.getProfiles()[0].configured, false);
+    assert.throws(() => agents.addBot({ nickname: "AI", level: "experienced", profileId: profile.id }), /请先配置模型 API Key/);
+    profile.apiKey = "test-token";
     globalThis.fetch = async (url, options) => {
       assert.equal(url, "https://k.amoy.work/ai/v1/responses");
-      assert.equal(options.headers.authorization, undefined);
+      assert.equal(options.headers.authorization, "Bearer test-token");
       return Response.json({ output: [{ content: [{ type: "output_text", text: '{"action":"check"}' }] }] });
     };
     const move = await decide({

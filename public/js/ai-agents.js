@@ -15,7 +15,7 @@ function localProfile() {
     model: "gpt-6-luna",
     useProxy: false,
     builtIn: true,
-    apiKey: "local",
+    apiKey: "",
   };
 }
 
@@ -96,11 +96,20 @@ export class BrowserAiAgents {
     this.tableNumber = tableNumber;
     this.password = password;
     const stored = readJson(PROFILES_KEY, { version: 1, profiles: [] }).profiles ?? [];
+    const savedLocal = stored.find((profile) => profile.id === LOCAL_PROFILE_ID);
+    const local = localProfile();
+    if (savedLocal) {
+      try {
+        local.apiKey = await decryptSecret(savedLocal);
+        local.apiKeyCiphertext = savedLocal.apiKeyCiphertext;
+        local.iv = savedLocal.iv;
+      } catch { local.decryptError = true; }
+    }
     const profiles = await Promise.all(stored.filter((profile) => profile.id !== LOCAL_PROFILE_ID).map(async (profile) => {
       try { return { ...profile, apiKey: await decryptSecret(profile) }; }
       catch { return { ...profile, apiKey: "", decryptError: true }; }
     }));
-    this.profiles = [localProfile(), ...profiles];
+    this.profiles = [local, ...profiles];
     const tables = readJson(TABLES_KEY, { version: 1, tables: {} }).tables ?? {};
     this.bots = tables[tableNumber] ?? [];
     this.onChange();
@@ -116,7 +125,7 @@ export class BrowserAiAgents {
   }
 
   getProfiles() {
-    return this.profiles.map(({ apiKey, apiKeyCiphertext, iv, ...profile }) => profile);
+    return this.profiles.map(({ apiKey, apiKeyCiphertext, iv, ...profile }) => ({ ...profile, configured: Boolean(apiKey) }));
   }
 
   getBots() {
@@ -135,7 +144,18 @@ export class BrowserAiAgents {
   }
 
   async saveProfile(input) {
-    if (input.id === LOCAL_PROFILE_ID) throw new Error("本机 Codex 配置不可编辑");
+    if (input.id === LOCAL_PROFILE_ID) {
+      const existing = this.profiles.find((profile) => profile.id === LOCAL_PROFILE_ID);
+      const apiKey = input.apiKey || existing.apiKey;
+      if (!apiKey) throw new Error("请填写 AI Token");
+      const secret = input.apiKey ? await encryptSecret(input.apiKey) : existing;
+      this.profiles = this.profiles.map((profile) => profile.id === LOCAL_PROFILE_ID
+        ? { ...profile, ...secret, apiKey, decryptError: false }
+        : profile);
+      this.persistProfiles();
+      this.onChange();
+      return LOCAL_PROFILE_ID;
+    }
     const baseUrl = input.baseUrl.trim().replace(/\/$/, "");
     const parsed = new URL(baseUrl);
     if (!/^https?:$/.test(parsed.protocol)) throw new Error("Base URL 必须使用 HTTP 或 HTTPS");
@@ -175,7 +195,7 @@ export class BrowserAiAgents {
 
   addBot(input) {
     if (!this.tableNumber) throw new Error("尚未进入牌桌");
-    if (!this.profiles.some((profile) => profile.id === input.profileId)) throw new Error("请选择模型配置");
+    if (!this.profiles.some((profile) => profile.id === input.profileId && profile.apiKey)) throw new Error("请先配置模型 API Key");
     if (!input.nickname.trim()) throw new Error("请填写 AI 昵称");
     if (!PROMPTS[input.level]) throw new Error("无效的 AI 水平");
     const bot = {
@@ -214,7 +234,8 @@ export class BrowserAiAgents {
   }
 
   persistProfiles() {
-    const profiles = this.profiles.filter((profile) => !profile.builtIn).map(({ apiKey, decryptError, ...profile }) => profile);
+    const profiles = this.profiles.filter((profile) => !profile.builtIn || profile.apiKeyCiphertext)
+      .map(({ apiKey, decryptError, ...profile }) => profile);
     writeJson(PROFILES_KEY, { version: 1, profiles });
   }
 

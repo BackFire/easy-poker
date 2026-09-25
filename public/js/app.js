@@ -958,12 +958,12 @@ function renderAiList() {
 function renderAiProfiles() {
   const profiles = aiAgents.getProfiles();
   $("ai-profile-list").innerHTML = profiles.length
-    ? profiles.map((profile) => `<div class="ai-item"><div class="ai-item-title"><strong>${escapeHtml(profile.name)}</strong><span>${escapeHtml(profile.model)} · ${escapeHtml(profile.keyLabel)}${profile.useProxy ? " · 游戏代理" : ""}</span></div>${profile.builtIn ? "" : `<div class="ai-item-actions"><button type="button" class="ghost sm" data-profile-edit="${escapeHtml(profile.id)}">编辑</button><button type="button" class="ghost sm danger" data-profile-remove="${escapeHtml(profile.id)}">删除</button></div>`}</div>`).join("")
+    ? profiles.map((profile) => `<div class="ai-item"><div class="ai-item-title"><strong>${escapeHtml(profile.name)}</strong><span>${escapeHtml(profile.model)} · ${escapeHtml(profile.keyLabel)}${profile.useProxy ? " · 游戏代理" : ""}${profile.builtIn && !profile.configured ? " · 待填 Token" : ""}</span></div><div class="ai-item-actions"><button type="button" class="ghost sm" data-profile-edit="${escapeHtml(profile.id)}">${profile.builtIn ? "配置 Token" : "编辑"}</button>${profile.builtIn ? "" : `<button type="button" class="ghost sm danger" data-profile-remove="${escapeHtml(profile.id)}">删除</button>`}</div></div>`).join("")
     : '<div class="ai-empty">还没有模型配置</div>';
 }
 
 function openBotForm() {
-  const profiles = aiAgents.getProfiles();
+  const profiles = aiAgents.getProfiles().filter((profile) => profile.configured);
   if (!profiles.length) {
     renderAiProfiles();
     showAiView("ai-profiles-view", "模型配置");
@@ -983,7 +983,10 @@ function openProfileForm(profileId = "") {
   $("ai-base-url").value = profile?.baseUrl ?? "";
   $("ai-model").value = profile?.model ?? "";
   $("ai-use-proxy").checked = Boolean(profile?.useProxy);
-  $("ai-api-key").required = !profile;
+  for (const id of ["ai-profile-name", "ai-base-url", "ai-model"]) $(id).readOnly = Boolean(profile?.builtIn);
+  $("ai-use-proxy").disabled = Boolean(profile?.builtIn);
+  $("ai-api-key").required = !profile || Boolean(profile.builtIn && !profile.configured);
+  $("ai-api-key").placeholder = profile?.builtIn ? "填写 AI Token" : "编辑时留空表示不修改";
   showAiView("ai-profile-form", profile ? `编辑 ${profile.keyLabel}` : "添加模型配置");
 }
 

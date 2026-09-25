@@ -115,7 +115,7 @@ export function modelTransport(url, body, config) {
 async function request(url, body, config, signal) {
   const transport = modelTransport(url, body, config);
   const headers = { "content-type": "application/json" };
-  if (!config.builtIn) headers.authorization = `Bearer ${config.apiKey}`;
+  headers.authorization = `Bearer ${config.apiKey}`;
   const res = await fetch(transport.url, {
     method: "POST",
     headers,
