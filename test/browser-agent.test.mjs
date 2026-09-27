@@ -25,7 +25,7 @@ test("browser AI can route a model request through the game proxy", () => {
   });
 });
 
-test("local Codex profile requires a token and sends it only to the model endpoint", async () => {
+test("local DeepSeek profile requires a token and sends it only to the model endpoint", async () => {
   const previous = { location: globalThis.location, localStorage: globalThis.localStorage, fetch: globalThis.fetch };
   try {
     globalThis.location = { origin: "https://k.amoy.work" };
@@ -33,16 +33,17 @@ test("local Codex profile requires a token and sends it only to the model endpoi
     const agents = new BrowserAiAgents(() => "https://k.amoy.work");
     await agents.attach("123456", "password");
     const profile = agents.profiles[0];
-    assert.equal(profile.model, "gpt-6-luna");
+    assert.equal(profile.model, "deepseek-v4-flash");
+    assert.equal(profile.preferChatCompletions, true);
     assert.equal(profile.baseUrl, "https://k.amoy.work/ai");
     assert.equal(agents.getProfiles()[0].apiKey, undefined);
     assert.equal(agents.getProfiles()[0].configured, false);
     assert.throws(() => agents.addBot({ nickname: "AI", level: "experienced", profileId: profile.id }), /请先配置模型 API Key/);
     profile.apiKey = "test-token";
     globalThis.fetch = async (url, options) => {
-      assert.equal(url, "https://k.amoy.work/ai/v1/responses");
+      assert.equal(url, "https://k.amoy.work/ai/v1/chat/completions");
       assert.equal(options.headers.authorization, "Bearer test-token");
-      return Response.json({ output: [{ content: [{ type: "output_text", text: '{"action":"check"}' }] }] });
+      return Response.json({ choices: [{ message: { content: '{"action":"check"}' } }] });
     };
     const move = await decide({
       config: { smallBlind: 1, bigBlind: 2, shortDeck: false },
@@ -57,6 +58,33 @@ test("local Codex profile requires a token and sends it only to the model endpoi
       if (value === undefined) delete globalThis[key];
       else globalThis[key] = value;
     }
+  }
+});
+
+test("browser AI falls back to Chat Completions when Responses conversion is unsupported", async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, model: JSON.parse(options.body).model });
+      if (url.endsWith("/responses")) {
+        return Response.json({ error: { code: "convert_request_failed", message: "not implemented" } }, { status: 500 });
+      }
+      return Response.json({ choices: [{ message: { content: '{"action":"check"}' } }] });
+    };
+    const move = await decide({
+      config: { smallBlind: 1, bigBlind: 2, shortDeck: false },
+      me: { id: "bot", holeCards: ["As", "Kd"] },
+      seats: [{ playerId: "bot", inHand: true, chips: 100, bet: 0 }],
+      street: "preflop", board: [], pot: 3, legal: { canCheck: true },
+    }, "experienced", { apiKey: "test-token", baseUrl: "https://poker.example/ai", model: "deepseek-v4-flash" });
+    assert.deepEqual(move, { action: "check" });
+    assert.deepEqual(calls, [
+      { url: "https://poker.example/ai/v1/responses", model: "deepseek-v4-flash" },
+      { url: "https://poker.example/ai/v1/chat/completions", model: "deepseek-v4-flash" },
+    ]);
+  } finally {
+    globalThis.fetch = previousFetch;
   }
 });
 

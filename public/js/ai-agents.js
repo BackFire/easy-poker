@@ -4,15 +4,17 @@ const PROFILES_KEY = "easy-poker.ai.profiles.v1";
 const TABLES_KEY = "easy-poker.ai.tables.v1";
 const DB_NAME = "easy-poker-ai";
 const DB_STORE = "keys";
+// Keep this ID stable so existing browsers retain their encrypted token and AI links.
 const LOCAL_PROFILE_ID = "codex-luna-local";
 
 function localProfile() {
   return {
     id: LOCAL_PROFILE_ID,
-    keyLabel: "Codex",
-    name: "本机 Codex",
+    keyLabel: "AI",
+    name: "本机 DeepSeek",
     baseUrl: `${location.origin}/ai`,
-    model: "gpt-6-luna",
+    model: "deepseek-v4-flash",
+    preferChatCompletions: true,
     useProxy: false,
     builtIn: true,
     apiKey: "",
@@ -183,7 +185,7 @@ export class BrowserAiAgents {
   }
 
   removeProfile(id) {
-    if (id === LOCAL_PROFILE_ID) throw new Error("本机 Codex 配置不可删除");
+    if (id === LOCAL_PROFILE_ID) throw new Error("本机模型配置不可删除");
     const tables = readJson(TABLES_KEY, { version: 1, tables: {} }).tables ?? {};
     if (Object.values(tables).some((bots) => bots.some((bot) => bot.profileId === id))) {
       throw new Error("该模型配置仍被 AI 玩家使用");

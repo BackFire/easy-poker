@@ -128,7 +128,7 @@ async function request(url, body, config, signal) {
   catch { throw Object.assign(new Error(`模型 API 返回非 JSON（HTTP ${res.status}）`), { status: res.status }); }
   if (!res.ok) {
     const detail = [data.error?.code, data.error?.message?.trim()].filter(Boolean).join(": ");
-    throw Object.assign(new Error(detail || `HTTP ${res.status}`), { status: res.status });
+    throw Object.assign(new Error(detail || `HTTP ${res.status}`), { status: res.status, code: data.error?.code });
   }
   return data;
 }
@@ -138,14 +138,20 @@ export async function decide(snapshot, level, config, signal) {
   if (!apiKey || !baseUrl || !model) throw new Error("需要 API Key、Base URL 和 Model");
   const input = JSON.stringify(agentContext(snapshot));
   const instruction = `${PROMPTS[level] ?? PROMPTS.experienced}只依据提供的牌局事实决策，不假设对手风格或不可见信息。只输出 JSON，例如 {"action":"call"} 或 {"action":"raise","amount":10}。amount 是本轮总下注额，必须遵循 legal。`;
-  let result;
-  try {
-    const data = await request(apiUrl(baseUrl, "responses"), { model, instructions: instruction, input: [{ role: "user", content: input }] }, config, signal);
-    result = data.output_text ?? data.output?.flatMap((o) => o.content ?? []).filter((c) => c.type === "output_text").map((c) => c.text).join("");
-  } catch (err) {
-    if (![400, 404, 405, 501].includes(err.status)) throw err;
+  const chat = async () => {
     const data = await request(apiUrl(baseUrl, "chat/completions"), { model, messages: [{ role: "system", content: instruction }, { role: "user", content: input }] }, config, signal);
-    result = data.choices?.[0]?.message?.content;
+    return data.choices?.[0]?.message?.content;
+  };
+  let result;
+  if (config.preferChatCompletions) result = await chat();
+  else {
+    try {
+      const data = await request(apiUrl(baseUrl, "responses"), { model, instructions: instruction, input: [{ role: "user", content: input }] }, config, signal);
+      result = data.output_text ?? data.output?.flatMap((o) => o.content ?? []).filter((c) => c.type === "output_text").map((c) => c.text).join("");
+    } catch (err) {
+      if (![400, 404, 405, 501].includes(err.status) && err.code !== "convert_request_failed") throw err;
+      result = await chat();
+    }
   }
   if (typeof result !== "string" || !result.trim()) throw new Error("模型返回空内容");
   return legalMove(result, snapshot.legal);
