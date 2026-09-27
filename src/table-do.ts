@@ -1,8 +1,9 @@
 import { cryptoRandom } from "./engine/cards.ts";
+import { AiError, decideAi, type AiConfig } from "./ai.ts";
 import { createTable, Table, type ActionInput, type TableJSON } from "./engine/table.ts";
 import type { CreateTableInput } from "./engine/types.ts";
 
-export interface Env {
+export interface Env extends AiConfig {
   TABLE: DurableObjectNamespace;
 }
 
@@ -40,7 +41,8 @@ export class TableDO {
         return await this.init(await request.json());
       }
       if (request.method === "POST" && url.pathname.endsWith("/cmd")) {
-        return await this.cmd(await request.json());
+        const body = await request.json<Record<string, unknown>>();
+        return body.type === "aiAction" ? await this.aiAction(body) : await this.cmd(body);
       }
       if (request.method === "GET") {
         const playerId = url.searchParams.get("playerId");
@@ -121,6 +123,47 @@ export class TableDO {
   private async cmd(body: Record<string, unknown>): Promise<Response> {
     const snapshot = await this.apply(body);
     return json({ snapshot });
+  }
+
+  private async aiAction(body: Record<string, unknown>): Promise<Response> {
+    const playerId = String(body.playerId ?? "");
+    const table = await this.loadAndTick();
+    if (!table) return json({ error: "not_found", message: "游戏桌不存在" }, 404);
+    await this.save(table);
+    await this.schedule(table);
+    if (body.password !== table.password) return json({ error: "wrong_password", message: "密码错误" }, 403);
+    const snapshot = table.snapshot(playerId);
+    if (!snapshot.me?.sitting || snapshot.actingPlayerId !== playerId || !snapshot.legal ||
+      snapshot.handNumber !== body.handNumber || snapshot.street !== body.street || snapshot.actionDeadline !== body.actionDeadline) {
+      return json({ error: "stale_turn", message: "已不是该 AI 的行动回合" }, 409);
+    }
+    const turn = `${snapshot.handNumber}:${snapshot.street}:${snapshot.actionDeadline}:${playerId}`;
+    if (await this.ctx.storage.get<string>("aiTurn") === turn) return json({ error: "duplicate_turn", message: "该回合已请求模型" }, 409);
+    await this.ctx.storage.put("aiTurn", turn);
+
+    const requestId = crypto.randomUUID();
+    const started = Date.now();
+    const log = { event: "ai_model", requestId, tableNumber: table.tableNumber, playerId, handNumber: snapshot.handNumber, street: snapshot.street, model: this.env.AI_MODEL };
+    console.log(JSON.stringify({ ...log, phase: "start" }));
+    try {
+      const result = await decideAi(snapshot, String(body.level ?? ""), this.env);
+      const current = await this.loadAndTick();
+      if (!current || current.hand?.actionDeadline !== snapshot.actionDeadline || current.hand?.actingPlayerId !== playerId) {
+        console.warn(JSON.stringify({ ...log, phase: "stale", elapsedMs: Date.now() - started }));
+        return json({ error: "stale_turn", message: "模型返回时该回合已结束", requestId }, 409);
+      }
+      current.action(playerId, result.move);
+      await this.save(current);
+      this.broadcast();
+      await this.schedule(current);
+      console.log(JSON.stringify({ ...log, phase: "success", elapsedMs: Date.now() - started, action: result.move.type, finishReason: result.finishReason, completionTokens: result.completionTokens, reasoningTokens: result.reasoningTokens }));
+      return json({ snapshot: current.snapshot(playerId), requestId });
+    } catch (err) {
+      const modelError = err instanceof AiError ? err : new AiError("model_action_error", (err as Error).message);
+      const status = modelError.code === "model_timeout" ? 504 : 502;
+      console.error(JSON.stringify({ ...log, phase: "error", elapsedMs: Date.now() - started, code: modelError.code, upstreamStatus: modelError.httpStatus }));
+      return json({ error: modelError.code, message: modelError.message, requestId }, status);
+    }
   }
 
   private async apply(body: Record<string, unknown>): Promise<ReturnType<Table["snapshot"]> | null> {

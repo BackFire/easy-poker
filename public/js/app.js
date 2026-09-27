@@ -930,7 +930,7 @@ $("btn-leave").onclick = () => void leaveTable();
 $("btn-leave-2").onclick = () => void leaveTable();
 
 function showAiView(id, title) {
-  for (const view of ["ai-list-view", "ai-bot-form", "ai-profiles-view", "ai-profile-form"]) {
+  for (const view of ["ai-list-view", "ai-bot-form"]) {
     $(view).classList.toggle("hidden", view !== id);
   }
   $("ai-modal-title").textContent = title;
@@ -941,53 +941,22 @@ function renderAiPanel() {
   $("btn-ai-label").textContent = `AI玩家${bots.length ? `（${bots.length}）` : ""}`;
   if ($("ai-modal").classList.contains("hidden")) return;
   if (!$("ai-list-view").classList.contains("hidden")) renderAiList();
-  if (!$("ai-profiles-view").classList.contains("hidden")) renderAiProfiles();
 }
 
 function renderAiList() {
   const bots = aiAgents.getBots();
   $("ai-list").innerHTML = bots.length
     ? bots.map((bot) => `<details class="ai-item">
-        <summary><span class="ai-item-title"><strong>${escapeHtml(bot.nickname)}</strong><span>${escapeHtml(bot.levelName)} · ${escapeHtml(bot.model)} · ${escapeHtml(bot.keyLabel)}</span></span><span class="ai-status ${bot.status.includes("异常") ? "error" : ""}">${escapeHtml(bot.status)}</span></summary>
-        <div class="ai-info"><span>昵称</span><b>${escapeHtml(bot.nickname)}</b><span>水平 / 风格</span><b>${escapeHtml(bot.levelName)}</b><span>模型</span><b>${escapeHtml(bot.model)}</b><span>API Key</span><b>${escapeHtml(bot.keyLabel)}</b><span>状态</span><b>${escapeHtml(bot.status)}${bot.error ? ` · ${escapeHtml(bot.error)}` : ""}</b></div>
+        <summary><span class="ai-item-title"><strong>${escapeHtml(bot.nickname)}</strong><span>${escapeHtml(bot.levelName)}</span></span><span class="ai-status ${bot.status.includes("异常") ? "error" : ""}">${escapeHtml(bot.status)}</span></summary>
+        <div class="ai-info"><span>昵称</span><b>${escapeHtml(bot.nickname)}</b><span>水平 / 风格</span><b>${escapeHtml(bot.levelName)}</b><span>状态</span><b>${escapeHtml(bot.status)}${bot.error ? ` · ${escapeHtml(bot.error)}` : ""}</b></div>
         <div class="ai-item-actions"><button type="button" class="ghost sm danger" data-ai-remove="${escapeHtml(bot.botId)}">移除 AI</button></div>
       </details>`).join("")
     : '<div class="ai-empty">还没有 AI 玩家</div>';
 }
 
-function renderAiProfiles() {
-  const profiles = aiAgents.getProfiles();
-  $("ai-profile-list").innerHTML = profiles.length
-    ? profiles.map((profile) => `<div class="ai-item"><div class="ai-item-title"><strong>${escapeHtml(profile.name)}</strong><span>${escapeHtml(profile.model)} · ${escapeHtml(profile.keyLabel)}${profile.useProxy ? " · 游戏代理" : ""}${profile.builtIn && !profile.configured ? " · 待填 Token" : ""}</span></div><div class="ai-item-actions"><button type="button" class="ghost sm" data-profile-edit="${escapeHtml(profile.id)}">${profile.builtIn ? "配置 Token" : "编辑"}</button>${profile.builtIn ? "" : `<button type="button" class="ghost sm danger" data-profile-remove="${escapeHtml(profile.id)}">删除</button>`}</div></div>`).join("")
-    : '<div class="ai-empty">还没有模型配置</div>';
-}
-
 function openBotForm() {
-  const profiles = aiAgents.getProfiles().filter((profile) => profile.configured);
-  if (!profiles.length) {
-    renderAiProfiles();
-    showAiView("ai-profiles-view", "模型配置");
-    toast("请先添加模型配置");
-    return;
-  }
   $("ai-bot-form").reset();
-  $("ai-profile").innerHTML = profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)} · ${escapeHtml(profile.keyLabel)}</option>`).join("");
   showAiView("ai-bot-form", "添加 AI");
-}
-
-function openProfileForm(profileId = "") {
-  const profile = aiAgents.getProfiles().find((item) => item.id === profileId);
-  $("ai-profile-form").reset();
-  $("ai-profile-id").value = profile?.id ?? "";
-  $("ai-profile-name").value = profile?.name ?? "";
-  $("ai-base-url").value = profile?.baseUrl ?? "";
-  $("ai-model").value = profile?.model ?? "";
-  $("ai-use-proxy").checked = Boolean(profile?.useProxy);
-  for (const id of ["ai-profile-name", "ai-base-url", "ai-model"]) $(id).readOnly = Boolean(profile?.builtIn);
-  $("ai-use-proxy").disabled = Boolean(profile?.builtIn);
-  $("ai-api-key").required = !profile || Boolean(profile.builtIn && !profile.configured);
-  $("ai-api-key").placeholder = profile?.builtIn ? "填写 AI Token" : "编辑时留空表示不修改";
-  showAiView("ai-profile-form", profile ? `编辑 ${profile.keyLabel}` : "添加模型配置");
 }
 
 $("btn-ai").onclick = () => {
@@ -997,24 +966,13 @@ $("btn-ai").onclick = () => {
 };
 $("ai-close").onclick = () => $("ai-modal").classList.add("hidden");
 $("ai-add-open").onclick = openBotForm;
-$("ai-profiles-open").onclick = () => { renderAiProfiles(); showAiView("ai-profiles-view", "模型配置"); };
 document.querySelectorAll("[data-ai-back]").forEach((button) => { button.onclick = () => { renderAiList(); showAiView("ai-list-view", "AI玩家"); }; });
-$("ai-profile-new").onclick = () => openProfileForm();
-$("ai-profile-cancel").onclick = () => { renderAiProfiles(); showAiView("ai-profiles-view", "模型配置"); };
 $("ai-bot-form").onsubmit = (event) => {
   event.preventDefault();
   try {
-    aiAgents.addBot({ nickname: $("ai-nickname").value, level: $("ai-level").value, profileId: $("ai-profile").value, buyinCount: $("ai-buyins").value });
+    aiAgents.addBot({ nickname: $("ai-nickname").value, level: $("ai-level").value, buyinCount: $("ai-buyins").value });
     renderAiList();
     showAiView("ai-list-view", "AI玩家");
-  } catch (err) { toast(err.message); }
-};
-$("ai-profile-form").onsubmit = async (event) => {
-  event.preventDefault();
-  try {
-    await aiAgents.saveProfile({ id: $("ai-profile-id").value, name: $("ai-profile-name").value, apiKey: $("ai-api-key").value, baseUrl: $("ai-base-url").value, model: $("ai-model").value, useProxy: $("ai-use-proxy").checked });
-    renderAiProfiles();
-    showAiView("ai-profiles-view", "模型配置");
   } catch (err) { toast(err.message); }
 };
 $("ai-list").onclick = async (event) => {
@@ -1023,14 +981,6 @@ $("ai-list").onclick = async (event) => {
   button.disabled = true;
   await aiAgents.removeBot(button.dataset.aiRemove);
   renderAiList();
-};
-$("ai-profile-list").onclick = async (event) => {
-  const edit = event.target.closest("[data-profile-edit]");
-  if (edit) return openProfileForm(edit.dataset.profileEdit);
-  const remove = event.target.closest("[data-profile-remove]");
-  if (!remove || !await gameConfirm("删除这个模型配置？", "删除")) return;
-  try { aiAgents.removeProfile(remove.dataset.profileRemove); renderAiProfiles(); }
-  catch (err) { toast(err.message); }
 };
 
 function openBuyin(okLabel) {

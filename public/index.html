@@ -172,33 +172,16 @@
           <div id="ai-list" class="ai-list"></div>
           <div class="ai-footer-actions">
             <button type="button" id="ai-add-open" class="primary">添加 AI</button>
-            <button type="button" id="ai-profiles-open" class="ghost">管理模型配置</button>
           </div>
         </section>
 
         <form id="ai-bot-form" class="hidden">
           <label class="field"><span>AI 昵称</span><input id="ai-nickname" maxlength="16" required placeholder="例如 AI-小王" /></label>
           <label class="field"><span>水平 / 牌手风格</span><select id="ai-level"><option value="beginner">新手</option><option value="experienced" selected>有经验</option><option value="pro">职业</option><option value="tom_dwan">Tom Dwan</option><option value="tan_xuan">谭轩</option><option value="phil_ivey">Phil Ivey</option><option value="alan_keating">Alan Keating</option><option value="aaron_zang">臧书奴</option></select></label>
-          <label class="field"><span>模型配置</span><select id="ai-profile" required></select></label>
           <label class="field"><span>买入次数</span><input id="ai-buyins" type="number" min="1" value="1" required /></label>
           <div class="ai-footer-actions"><button type="submit" class="primary">添加并坐下</button><button type="button" class="ghost" data-ai-back>返回</button></div>
         </form>
 
-        <section id="ai-profiles-view" class="hidden">
-          <div id="ai-profile-list" class="ai-list"></div>
-          <div class="ai-footer-actions"><button type="button" id="ai-profile-new" class="primary">添加模型配置</button><button type="button" class="ghost" data-ai-back>返回</button></div>
-        </section>
-
-        <form id="ai-profile-form" class="hidden">
-          <input id="ai-profile-id" type="hidden" />
-          <label class="field"><span>配置名称</span><input id="ai-profile-name" maxlength="24" required placeholder="例如 DeepSeek" /></label>
-          <label class="field"><span>API Key</span><input id="ai-api-key" type="text" autocomplete="off" spellcheck="false" placeholder="编辑时留空表示不修改" /></label>
-          <label class="field"><span>Base URL</span><input id="ai-base-url" type="url" required placeholder="https://api.example.com/v1" /></label>
-          <label class="field"><span>Model</span><input id="ai-model" required placeholder="例如 deepseek-chat" /></label>
-          <label class="check"><input id="ai-use-proxy" type="checkbox" /> 通过游戏代理访问模型 API</label>
-          <p class="muted ai-storage-note">API Key 加密保存在当前浏览器；启用代理时仅随模型请求经过游戏 Worker，不会被保存。</p>
-          <div class="ai-footer-actions"><button type="submit" class="primary">保存配置</button><button type="button" id="ai-profile-cancel" class="ghost">返回</button></div>
-        </form>
       </div>
     </div>
     <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">

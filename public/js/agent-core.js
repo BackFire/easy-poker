@@ -94,65 +94,10 @@ export function legalMove(reply, legal) {
   return { action: type, amount: Number.isFinite(amount) ? Math.min(legal.maxRaiseTo, Math.max(min, amount)) : min };
 }
 
-export function apiUrl(base, endpoint) {
-  const root = base.replace(/\/(v1\/)?(responses|chat\/completions)\/?$/, "").replace(/\/$/, "");
-  return `${root.endsWith("/v1") ? root : `${root}/v1`}/${endpoint}`;
-}
-
 export function gameWsUrl(base, tableNumber, playerId) {
   const url = new URL(base);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/ws";
   url.search = new URLSearchParams({ table: tableNumber, playerId }).toString();
   return url.toString();
-}
-
-export function modelTransport(url, body, config) {
-  if (!config.useProxy) return { url, body };
-  return { url: `${config.proxyOrigin.replace(/\/$/, "")}/api/model-proxy`, body: { url, body } };
-}
-
-async function request(url, body, config, signal) {
-  const transport = modelTransport(url, body, config);
-  const headers = { "content-type": "application/json" };
-  headers.authorization = `Bearer ${config.apiKey}`;
-  const res = await fetch(transport.url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(transport.body),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
-  });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); }
-  catch { throw Object.assign(new Error(`模型 API 返回非 JSON（HTTP ${res.status}）`), { status: res.status }); }
-  if (!res.ok) {
-    const detail = [data.error?.code, data.error?.message?.trim()].filter(Boolean).join(": ");
-    throw Object.assign(new Error(detail || `HTTP ${res.status}`), { status: res.status, code: data.error?.code });
-  }
-  return data;
-}
-
-export async function decide(snapshot, level, config, signal) {
-  const { apiKey, baseUrl, model } = config;
-  if (!apiKey || !baseUrl || !model) throw new Error("需要 API Key、Base URL 和 Model");
-  const input = JSON.stringify(agentContext(snapshot));
-  const instruction = `${PROMPTS[level] ?? PROMPTS.experienced}只依据提供的牌局事实决策，不假设对手风格或不可见信息。只输出 JSON，例如 {"action":"call"} 或 {"action":"raise","amount":10}。amount 是本轮总下注额，必须遵循 legal。`;
-  const chat = async () => {
-    const data = await request(apiUrl(baseUrl, "chat/completions"), { model, messages: [{ role: "system", content: instruction }, { role: "user", content: input }] }, config, signal);
-    return data.choices?.[0]?.message?.content;
-  };
-  let result;
-  if (config.preferChatCompletions) result = await chat();
-  else {
-    try {
-      const data = await request(apiUrl(baseUrl, "responses"), { model, instructions: instruction, input: [{ role: "user", content: input }] }, config, signal);
-      result = data.output_text ?? data.output?.flatMap((o) => o.content ?? []).filter((c) => c.type === "output_text").map((c) => c.text).join("");
-    } catch (err) {
-      if (![400, 404, 405, 501].includes(err.status) && err.code !== "convert_request_failed") throw err;
-      result = await chat();
-    }
-  }
-  if (typeof result !== "string" || !result.trim()) throw new Error("模型返回空内容");
-  return legalMove(result, snapshot.legal);
 }

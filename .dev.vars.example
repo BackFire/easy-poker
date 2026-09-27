@@ -1,0 +1,4 @@
+AI_MODEL="deepseek-v4-flash"
+AI_API_URL="http://127.0.0.1:8787/chat/completions"
+AI_API_KEY="replace-with-server-side-key"
+AI_THINKING="disabled"

@@ -1,25 +1,7 @@
-import { decide, gameWsUrl, PROMPTS, PROMPT_LABELS } from "./agent-core.js";
+import { gameWsUrl, PROMPTS, PROMPT_LABELS } from "./agent-core.js";
 
-const PROFILES_KEY = "easy-poker.ai.profiles.v1";
-const TABLES_KEY = "easy-poker.ai.tables.v1";
-const DB_NAME = "easy-poker-ai";
-const DB_STORE = "keys";
-// Keep this ID stable so existing browsers retain their encrypted token and AI links.
-const LOCAL_PROFILE_ID = "codex-luna-local";
-
-function localProfile() {
-  return {
-    id: LOCAL_PROFILE_ID,
-    keyLabel: "AI",
-    name: "本机 DeepSeek",
-    baseUrl: `${location.origin}/ai`,
-    model: "deepseek-v4-flash",
-    preferChatCompletions: true,
-    useProxy: false,
-    builtIn: true,
-    apiKey: "",
-  };
-}
+const TABLES_KEY = "easy-poker.ai.tables.v2";
+const OLD_TABLES_KEY = "easy-poker.ai.tables.v1";
 
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; }
@@ -30,64 +12,12 @@ function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function bytesToBase64(bytes) {
-  let text = "";
-  for (const byte of bytes) text += String.fromCharCode(byte);
-  return btoa(text);
-}
-
-function base64ToBytes(text) {
-  return Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
-}
-
-function openKeyDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function encryptionKey() {
-  const db = await openKeyDb();
-  const current = await new Promise((resolve, reject) => {
-    const request = db.transaction(DB_STORE).objectStore(DB_STORE).get("aes");
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  if (current) return current;
-  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-  await new Promise((resolve, reject) => {
-    const request = db.transaction(DB_STORE, "readwrite").objectStore(DB_STORE).put(key, "aes");
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  return key;
-}
-
-async function encryptSecret(secret) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await encryptionKey(), new TextEncoder().encode(secret));
-  return { apiKeyCiphertext: bytesToBase64(new Uint8Array(ciphertext)), iv: bytesToBase64(iv) };
-}
-
-async function decryptSecret(profile) {
-  const plain = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: base64ToBytes(profile.iv) },
-    await encryptionKey(),
-    base64ToBytes(profile.apiKeyCiphertext),
-  );
-  return new TextDecoder().decode(plain);
-}
-
 export class BrowserAiAgents {
   constructor(getApiOrigin, onChange = () => {}) {
     this.getApiOrigin = getApiOrigin;
     this.onChange = onChange;
     this.tableNumber = "";
     this.password = "";
-    this.profiles = [];
     this.bots = [];
     this.runtimes = new Map();
   }
@@ -97,25 +27,16 @@ export class BrowserAiAgents {
     this.detach();
     this.tableNumber = tableNumber;
     this.password = password;
-    const stored = readJson(PROFILES_KEY, { version: 1, profiles: [] }).profiles ?? [];
-    const savedLocal = stored.find((profile) => profile.id === LOCAL_PROFILE_ID);
-    const local = localProfile();
-    if (savedLocal) {
-      try {
-        local.apiKey = await decryptSecret(savedLocal);
-        local.apiKeyCiphertext = savedLocal.apiKeyCiphertext;
-        local.iv = savedLocal.iv;
-      } catch { local.decryptError = true; }
-    }
-    const profiles = await Promise.all(stored.filter((profile) => profile.id !== LOCAL_PROFILE_ID).map(async (profile) => {
-      try { return { ...profile, apiKey: await decryptSecret(profile) }; }
-      catch { return { ...profile, apiKey: "", decryptError: true }; }
-    }));
-    this.profiles = [local, ...profiles];
+    const oldBots = readJson(OLD_TABLES_KEY, { tables: {} }).tables?.[tableNumber] ?? [];
+    localStorage.removeItem("easy-poker.ai.profiles.v1");
+    localStorage.removeItem(OLD_TABLES_KEY);
     const tables = readJson(TABLES_KEY, { version: 1, tables: {} }).tables ?? {};
     this.bots = tables[tableNumber] ?? [];
     this.onChange();
     for (const bot of this.bots) this.start(bot);
+    await Promise.allSettled(oldBots.filter((bot) => typeof bot.playerId === "string").map((bot) =>
+      this.gameApi("/api/cmd", { type: "stand", tableNumber, playerId: bot.playerId, nickname: bot.nickname ?? "" })
+    ));
   }
 
   detach() {
@@ -126,78 +47,20 @@ export class BrowserAiAgents {
     this.bots = [];
   }
 
-  getProfiles() {
-    return this.profiles.map(({ apiKey, apiKeyCiphertext, iv, ...profile }) => ({ ...profile, configured: Boolean(apiKey) }));
-  }
-
   getBots() {
     return this.bots.map((bot) => {
-      const profile = this.profiles.find((item) => item.id === bot.profileId);
       const runtime = this.runtimes.get(bot.botId);
       return {
         ...bot,
         levelName: PROMPT_LABELS[bot.level] ?? bot.level,
-        model: profile?.model ?? "模型配置已删除",
-        keyLabel: profile?.keyLabel ?? "—",
         status: runtime?.status ?? "连接中",
         error: runtime?.error ?? "",
       };
     });
   }
 
-  async saveProfile(input) {
-    if (input.id === LOCAL_PROFILE_ID) {
-      const existing = this.profiles.find((profile) => profile.id === LOCAL_PROFILE_ID);
-      const apiKey = input.apiKey || existing.apiKey;
-      if (!apiKey) throw new Error("请填写 AI Token");
-      const secret = input.apiKey ? await encryptSecret(input.apiKey) : existing;
-      this.profiles = this.profiles.map((profile) => profile.id === LOCAL_PROFILE_ID
-        ? { ...profile, ...secret, apiKey, decryptError: false }
-        : profile);
-      this.persistProfiles();
-      this.onChange();
-      return LOCAL_PROFILE_ID;
-    }
-    const baseUrl = input.baseUrl.trim().replace(/\/$/, "");
-    const parsed = new URL(baseUrl);
-    if (!/^https?:$/.test(parsed.protocol)) throw new Error("Base URL 必须使用 HTTP 或 HTTPS");
-    if (!input.name.trim() || !input.model.trim()) throw new Error("请填写配置名称和 Model");
-    const existing = this.profiles.find((profile) => profile.id === input.id);
-    if (!existing && !input.apiKey) throw new Error("请填写 API Key");
-    const secret = input.apiKey ? await encryptSecret(input.apiKey) : existing;
-    const profile = {
-      id: existing?.id ?? crypto.randomUUID(),
-      keyLabel: existing?.keyLabel ?? this.nextKeyLabel(),
-      name: input.name.trim(),
-      baseUrl,
-      model: input.model.trim(),
-      useProxy: Boolean(input.useProxy),
-      apiKeyCiphertext: secret.apiKeyCiphertext,
-      iv: secret.iv,
-      apiKey: input.apiKey || existing.apiKey,
-    };
-    this.profiles = existing
-      ? this.profiles.map((item) => item.id === profile.id ? profile : item)
-      : [...this.profiles, profile];
-    this.persistProfiles();
-    this.onChange();
-    return profile.id;
-  }
-
-  removeProfile(id) {
-    if (id === LOCAL_PROFILE_ID) throw new Error("本机模型配置不可删除");
-    const tables = readJson(TABLES_KEY, { version: 1, tables: {} }).tables ?? {};
-    if (Object.values(tables).some((bots) => bots.some((bot) => bot.profileId === id))) {
-      throw new Error("该模型配置仍被 AI 玩家使用");
-    }
-    this.profiles = this.profiles.filter((profile) => profile.id !== id);
-    this.persistProfiles();
-    this.onChange();
-  }
-
   addBot(input) {
     if (!this.tableNumber) throw new Error("尚未进入牌桌");
-    if (!this.profiles.some((profile) => profile.id === input.profileId && profile.apiKey)) throw new Error("请先配置模型 API Key");
     if (!input.nickname.trim()) throw new Error("请填写 AI 昵称");
     if (!PROMPTS[input.level]) throw new Error("无效的 AI 水平");
     const bot = {
@@ -205,7 +68,6 @@ export class BrowserAiAgents {
       playerId: crypto.randomUUID(),
       nickname: input.nickname.trim().slice(0, 16),
       level: input.level,
-      profileId: input.profileId,
       buyinCount: Math.max(1, Math.floor(Number(input.buyinCount) || 1)),
     };
     this.bots.push(bot);
@@ -228,17 +90,6 @@ export class BrowserAiAgents {
     } catch {
       /* local removal must still complete */
     }
-  }
-
-  nextKeyLabel() {
-    const max = Math.max(0, ...this.profiles.map((profile) => Number(profile.keyLabel?.match(/\d+/)?.[0]) || 0));
-    return `KEY-${String(max + 1).padStart(2, "0")}`;
-  }
-
-  persistProfiles() {
-    const profiles = this.profiles.filter((profile) => !profile.builtIn || profile.apiKeyCiphertext)
-      .map(({ apiKey, decryptError, ...profile }) => profile);
-    writeJson(PROFILES_KEY, { version: 1, profiles });
   }
 
   persistBots() {
@@ -379,48 +230,37 @@ export class BrowserAiAgents {
     runtime.busy = true;
     runtime.lastTurn = turn;
     runtime.abortController = new AbortController();
-    const profile = this.profiles.find((item) => item.id === runtime.bot.profileId);
-    let move;
     try {
-      if (!profile?.apiKey) throw new Error("模型配置无法解密");
-      const config = profile.useProxy ? { ...profile, proxyOrigin: await this.getApiOrigin() } : profile;
-      move = await decide(snapshot, runtime.bot.level, config, runtime.abortController.signal);
+      const data = await this.gameApi("/api/cmd", {
+        type: "aiAction", tableNumber: this.tableNumber, password: this.password,
+        playerId: runtime.bot.playerId, level: runtime.bot.level,
+        handNumber: snapshot.handNumber, street: snapshot.street, actionDeadline: snapshot.actionDeadline,
+      }, runtime.abortController.signal, 8500);
+      runtime.snapshot = data.snapshot;
+      this.setStatus(runtime, "运行中");
     } catch (err) {
-      runtime.busy = false;
       if (runtime.stopped || err.name === "AbortError") return;
+      if (["stale_turn", "duplicate_turn"].includes(err.error)) return;
       runtime.modelFailed = true;
       const detail = err.name === "TimeoutError" ? "模型请求超时" : err.message || "模型请求失败";
-      this.setStatus(runtime, "模型异常", err.status ? `HTTP ${err.status}: ${detail}` : detail);
+      this.setStatus(runtime, "模型异常", `${detail}${err.requestId ? ` (${err.requestId})` : ""}`);
       try {
         await this.gameApi("/api/cmd", { type: "stand", tableNumber: this.tableNumber, playerId: runtime.bot.playerId, nickname: runtime.bot.nickname }, runtime.lifecycleController.signal);
       } catch { /* the game server will eventually time out this seat */ }
       this.stop(runtime);
-      return;
     } finally {
       runtime.abortController = null;
-    }
-    try {
-      const current = runtime.snapshot;
-      const currentTurn = `${current?.handNumber}:${current?.street}:${current?.actionDeadline}`;
-      if (runtime.stopped || currentTurn !== turn || current?.actingPlayerId !== runtime.bot.playerId) return;
-      const data = await this.gameApi("/api/cmd", { type: "action", ...move, tableNumber: this.tableNumber, playerId: runtime.bot.playerId, nickname: runtime.bot.nickname }, runtime.lifecycleController.signal);
-      runtime.snapshot = data.snapshot;
-      this.setStatus(runtime, "运行中");
-    } catch (err) {
-      runtime.lastTurn = "";
-      this.setStatus(runtime, "连接异常", this.safeError(err, "行动提交失败"));
-    } finally {
       runtime.busy = false;
     }
   }
 
-  async gameApi(path, body, signal) {
+  async gameApi(path, body, signal, timeout = 5000) {
     const origin = await this.getApiOrigin();
     const res = await fetch(`${origin}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.message || data.error || "请求失败"), data);
