@@ -85,6 +85,8 @@ npm test
 
 测试直接 `import` `src/engine` 里上线用的牌局引擎（不是拷贝或 mock）。
 
+要验证实际部署的模型与完整牌局，可运行 `GAME_API_URL=https://k.amoy.work node scripts/verify-live-ai.mjs`；加 `--mixed` 可验证真人常规行动与 AI 同桌。在 Node.js 22+ 环境运行 `GAME_API_URL=https://k.amoy.work node scripts/verify-browser-ai.mjs` 可进一步验证浏览器 AI 管理器经 WebSocket 自动对局。脚本创建临时牌桌，检查胜者和超时记录，结束后让测试玩家起身。
+
 ## 部署
 
 两个 Worker：`easy-poker`（前端）和 `easy-poker-api`（API + 牌桌）。见 [docs/deploy.md](docs/deploy.md)。架构见 [docs/architecture.md](docs/architecture.md)。
