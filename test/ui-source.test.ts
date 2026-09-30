@@ -69,12 +69,14 @@ describe("client UI source (shipped public assets)", () => {
   it("has invite copy, action controls, and is not Node-only", () => {
     const js = read("../public/js/app.js");
     const html = read("../public/index.html");
+    const css = read("../public/css/app.css");
     assert.match(html, /复制邀请链接/);
     assert.doesNotMatch(html, /复制号码\+密码/);
     assert.doesNotMatch(html, /id="table-clock"/);
     assert.match(html, /id="btn-leave"/);
-    assert.match(html, /id="btn-ai"[^>]*desktop-only[\s\S]*id="btn-ai-label">AI玩家/);
+    assert.match(html, /id="btn-ai"[\s\S]*id="btn-ai-label">AI玩家/);
     assert.match(html, /id="ai-modal"/);
+    assert.doesNotMatch(css, /#ai-modal\s*\{\s*display:\s*none/);
     assert.doesNotMatch(html, /id="ai-use-proxy"|id="ai-api-key"|id="ai-profile"/);
     assert.match(html, /value="tom_dwan">Tom Dwan</);
     assert.match(html, /value="tan_xuan">谭轩</);
@@ -122,6 +124,13 @@ describe("client UI source (shipped public assets)", () => {
     assert.match(js, /data-preset="0\.333333"/);
     assert.match(js, /data-preset="0\.5"/);
     assert.match(js, /data-preset="1"/);
+    assert.match(js, /data-preset-bb="2"/);
+    assert.match(js, /data-preset-bb="3"/);
+    assert.match(js, /id="raise-input"/);
+    assert.match(html, /id="sd-pause"/);
+    assert.match(html, /id="sd-next-now"/);
+    assert.match(js, /type: "startHold"/);
+    assert.match(js, /fallbackAiNickname/);
     assert.match(js, /data-preset="allin"/);
     assert.match(js, /preset\.dataset\.preset === "allin"\) slider\.value = slider\.max/);
     assert.match(js, /class="amount-controls"[\s\S]*class="raise-presets"[\s\S]*class="raise-ctl"/);

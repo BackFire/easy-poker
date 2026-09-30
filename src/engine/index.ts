@@ -10,6 +10,7 @@ export {
   freshDeck,
   HAND_PAUSE_MS,
   RUNOUT_VOTE_MS,
+  START_HOLD_MS,
   isSevenDeuceOffsuit,
   newPlayerId,
   parseCard,

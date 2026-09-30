@@ -76,7 +76,7 @@
           </div>
           <div class="top-right">
             <button type="button" id="btn-stats" class="ghost sm">战绩</button>
-            <button type="button" id="btn-ai" class="ghost sm icon-btn desktop-only hidden">
+            <button type="button" id="btn-ai" class="ghost sm icon-btn hidden">
               <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v4M8.5 12h.01M15.5 12h.01M9 16h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               <span id="btn-ai-label">AI玩家</span>
             </button>
@@ -123,6 +123,7 @@
             <div id="sd-board" class="board"></div>
             <div id="sd-players" class="sd-players"></div>
             <div id="sd-win" class="sd-win"></div>
+            <div class="sd-actions"><button type="button" id="sd-next-now" class="primary sm">立即下一局</button><button type="button" id="sd-pause" class="ghost sm">暂停下一局</button></div>
           </div>
         </div>
       </section>
@@ -171,7 +172,7 @@
         <section id="ai-list-view">
           <div id="ai-list" class="ai-list"></div>
           <div class="ai-footer-actions">
-            <button type="button" id="ai-add-open" class="primary">添加 AI</button>
+            <button type="button" id="ai-add-open" class="primary">添加 AI</button><button type="button" id="ai-done" class="ghost">完成添加</button>
           </div>
         </section>
 

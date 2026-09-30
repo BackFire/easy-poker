@@ -10,6 +10,7 @@ import {
   evaluate7,
   freshDeck,
   HAND_PAUSE_MS,
+  START_HOLD_MS,
   newPlayerId,
   parseCards,
   PokerError,
@@ -689,6 +690,41 @@ describe("hand / street / pots / timeout", () => {
     assert.equal(table.nextHandAt, null);
     assert.equal(table.lastResult, null);
     assert.equal(table.snapshot("b").pot, 0);
+  });
+
+  it("holds the first hand while the host is adding players", () => {
+    const { table, clk } = open();
+    joinSit(table, "a", "A");
+    joinSit(table, "b", "B");
+    table.setStartHold(true);
+    assert.equal(table.hand, null);
+    assert.equal(table.snapshot("a").startPaused, true);
+    clk.add(START_HOLD_MS - 1);
+    table.tick();
+    assert.equal(table.hand, null);
+    table.setStartHold(false);
+    table.tick();
+    assert.ok(table.hand);
+  });
+
+  it("can pause a settlement and continue or skip to the next hand", () => {
+    const { table, clk } = open();
+    joinSit(table, "a", "A");
+    joinSit(table, "b", "B");
+    table.startHand({ deck: parseCards("Kc Ac Kd Ad 2c 3d 4h 5s 6c") });
+    checkCall(table);
+    assert.equal(table.hand, null);
+    assert.ok(table.lastResult);
+    table.setStartHold(true);
+    assert.equal(table.nextHandAt, null);
+    assert.equal(table.snapshot("a").startPaused, true);
+    clk.add(HAND_PAUSE_MS + 1000);
+    table.tick();
+    assert.equal(table.hand, null);
+    table.setStartHold(false);
+    clk.add(250);
+    table.tick();
+    assert.ok(table.hand);
   });
 
   it("rebuy credits chips only when the next hand starts; busted player is not dealt in", () => {

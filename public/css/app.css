@@ -418,6 +418,7 @@ button { cursor: pointer; }
   width: 100%;
   min-width: 0;
 }
+.raise-ctl input[type="number"] { width: 78px; min-width: 0; height: 32px; padding: 0 6px; border: 1px solid #6b5940; border-radius: 8px; background: #15232c; color: var(--gold); font: inherit; text-align: right; }
 .raise-ctl output {
   min-width: 3.2em;
   font-variant-numeric: tabular-nums;
@@ -548,6 +549,8 @@ button { cursor: pointer; }
 .sd-row .name { font-size: 12px; margin-bottom: 6px; }
 .sd-row.winner .name { color: var(--gold); font-weight: 700; }
 .sd-row .sd-holes { display: flex; gap: 4px; justify-content: center; }
+.sd-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+.sd-actions button { min-width: 112px; }
 .sd-win {
   font-size: 16px;
   font-weight: 800;
@@ -565,7 +568,6 @@ button { cursor: pointer; }
 
 @media (max-width: 820px), (orientation: portrait) {
   .desktop-only { display: none !important; }
-  #ai-modal { display: none !important; }
   #table-screen.screen { height: 100dvh; min-height: 0; overflow: hidden; }
   .table-wrap { place-items: start center; padding: 10px 8px 0; }
   .rail {
@@ -650,6 +652,9 @@ button { cursor: pointer; }
     overflow: auto;
     margin: 0;
   }
+  .ai-modal-card { width: min(94vw, 520px); max-height: 86dvh; }
+  .ai-footer-actions { flex-wrap: wrap; }
+  .raise-ctl input[type="number"] { width: 68px; }
 }
 
 @media (min-width: 821px) and (orientation: landscape) {

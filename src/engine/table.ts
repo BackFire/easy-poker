@@ -5,6 +5,7 @@ import { compareHand, evaluateBest, rankName, type HandValue } from "./rank.ts";
 import {
   ACTION_MS,
   HAND_PAUSE_MS,
+  START_HOLD_MS,
   MAX_SEATS,
   PokerError,
   RUNOUT_VOTE_MS,
@@ -48,6 +49,7 @@ export interface TableJSON {
   nextHandNumber: number;
   bountyPaid: string[];
   nextHandAt: number | null;
+  startHoldUntil?: number | null;
   runoutVote: RunoutVote | null;
   reactions?: Record<string, { emoji: string; until: number }>;
 }
@@ -122,6 +124,7 @@ export interface ClientSnapshot {
   streetActions: HandAction[];
   lastResult: LastResult | null;
   nextHandAt: number | null;
+  startPaused: boolean;
   invitePath: string;
   runoutVote: RunoutVote | null;
 }
@@ -184,6 +187,7 @@ export class Table {
   closing = false;
   nextHandNumber = 1;
   nextHandAt: number | null = null;
+  startHoldUntil: number | null = null;
   bountyPaid = new Set<string>();
   runoutVote: RunoutVote | null = null;
   reactions: Record<string, { emoji: string; until: number }> = {};
@@ -252,6 +256,7 @@ export class Table {
     t.closing = data.closing;
     t.nextHandNumber = data.nextHandNumber;
     t.nextHandAt = data.nextHandAt ?? null;
+    t.startHoldUntil = data.startHoldUntil ?? null;
     t.bountyPaid = new Set(data.bountyPaid ?? []);
     t.runoutVote = data.runoutVote
       ? { deadline: data.runoutVote.deadline, choices: { ...data.runoutVote.choices } }
@@ -293,6 +298,7 @@ export class Table {
       closing: this.closing,
       nextHandNumber: this.nextHandNumber,
       nextHandAt: this.nextHandAt,
+      startHoldUntil: this.startHoldUntil,
       bountyPaid: [...this.bountyPaid],
       runoutVote: this.runoutVote ? { deadline: this.runoutVote.deadline, choices: { ...this.runoutVote.choices } } : null,
       reactions: this.reactions,
@@ -521,6 +527,7 @@ export class Table {
     if (this.hand) return false;
     if (this.closing) return false;
     if (this.endsAt !== null && this.now() >= this.endsAt) return false;
+    if (this.startHoldUntil !== null && this.now() < this.startHoldUntil) return false;
     return this.seatedWithChips().length >= 2;
   }
 
@@ -528,10 +535,24 @@ export class Table {
     return this.seated().filter((p) => p.chips + (p.pendingBuyinChips ?? 0) > 0);
   }
 
+  setStartHold(hold: boolean): void {
+    this.assertNotFinished();
+    if (hold) {
+      this.startHoldUntil = this.now() + START_HOLD_MS;
+      if (!this.hand && (this.nextHandNumber === 1 || this.lastResult)) this.nextHandAt = null;
+      return;
+    }
+    this.startHoldUntil = null;
+    if (!this.hand && this.canStartHand()) {
+      this.nextHandAt = this.lastResult ? this.now() + 250 : this.now();
+    }
+  }
+
   /** Next Durable Object alarm: action clock, showdown pause, 时长 end, or the inter-hand pause. */
   nextWakeAt(nextHandDelayMs: number): number | null {
     if (this.status === "finished") return null;
     const due: number[] = [];
+    if (this.startHoldUntil != null) due.push(this.startHoldUntil);
     if (this.runoutVote) due.push(this.runoutVote.deadline);
     else if (this.hand?.actionDeadline != null) due.push(this.hand.actionDeadline);
     if (!this.hand && this.nextHandAt != null) due.push(this.nextHandAt);
@@ -552,6 +573,7 @@ export class Table {
 
   tick(): void {
     if (this.status === "finished") return;
+    if (this.startHoldUntil !== null && this.now() >= this.startHoldUntil) this.startHoldUntil = null;
     if (this.runoutVote && this.now() >= this.runoutVote.deadline) {
       this.resolveRunoutVote();
     }
@@ -692,6 +714,7 @@ export class Table {
           }
         : null,
       nextHandAt: this.nextHandAt,
+      startPaused: this.startHoldUntil !== null && this.now() < this.startHoldUntil,
       invitePath: this.getInvite().path,
       runoutVote: this.runoutVote
         ? { deadline: this.runoutVote.deadline, choices: { ...this.runoutVote.choices } }
@@ -1518,4 +1541,4 @@ export { randomNickname } from "./names.ts";
 export { newPlayerId } from "./names.ts";
 export { evaluate7, evaluateBest, compareHand, rankName, CATEGORY } from "./rank.ts";
 export { freshDeck, parseCard, parseCards, shuffle, isSevenDeuceOffsuit } from "./cards.ts";
-export { ACTION_MS, DURATION_MINUTES, HAND_PAUSE_MS, PokerError, RUNOUT_VOTE_MS } from "./types.ts";
+export { ACTION_MS, DURATION_MINUTES, HAND_PAUSE_MS, PokerError, RUNOUT_VOTE_MS, START_HOLD_MS } from "./types.ts";

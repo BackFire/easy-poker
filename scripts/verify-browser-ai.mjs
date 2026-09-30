@@ -25,14 +25,20 @@ async function api(path, body) {
 
 const manager = new BrowserAiAgents(async () => origin);
 let tableNumber;
+let ownerId;
+let password;
 try {
+  ownerId = randomUUID();
   const created = await api("/api/tables", {
-    playerId: randomUUID(), nickname: "Smoke-Owner", durationMinutes: 30,
+    playerId: ownerId, nickname: "Smoke-Owner", durationMinutes: 30,
   });
   tableNumber = created.snapshot.tableNumber;
-  await manager.attach(tableNumber, created.snapshot.password);
+  password = created.snapshot.password;
+  await manager.attach(tableNumber, password);
+  await api("/api/cmd", { type: "startHold", on: true, tableNumber, password, playerId: ownerId, nickname: "Smoke-Owner" });
   manager.addBot({ nickname: "Smoke-Browser-1", level: "beginner", buyinCount: 1 });
   manager.addBot({ nickname: "Smoke-Browser-2", level: "experienced", buyinCount: 1 });
+  await api("/api/cmd", { type: "startHold", on: false, tableNumber, password, playerId: ownerId, nickname: "Smoke-Owner" });
   const bots = manager.getBots();
 
   const deadline = Date.now() + 120_000;

@@ -205,6 +205,10 @@ export class TableDO {
         case "autoStraddle":
           table.setAutoStraddle(playerId, Boolean(body.on));
           break;
+        case "startHold":
+          if (String(body.password ?? "") !== table.password) throw Object.assign(new Error("密码错误"), { code: "wrong_password" });
+          table.setStartHold(Boolean(body.on));
+          break;
         case "snapshot":
           break;
         default:

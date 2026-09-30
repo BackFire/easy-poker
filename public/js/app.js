@@ -26,6 +26,7 @@ const state = {
   raiseOpen: false,
   lastTickSec: null,
   emoteTimer: null,
+  aiSetupHolding: false,
 };
 
 localStorage.setItem("ep.id", state.playerId);
@@ -337,6 +338,20 @@ function visualKey(snap) {
   });
 }
 
+async function setStartHold(on) {
+  if (!state.tableNumber || !state.password) return null;
+  const data = await api("/api/cmd", {
+    type: "startHold",
+    on,
+    password: state.password,
+    playerId: state.playerId,
+    tableNumber: state.tableNumber,
+    nickname: state.nickname,
+  });
+  applySnapshot(data.snapshot);
+  return data.snapshot;
+}
+
 function renderTable(snap) {
   $("table-id").textContent = `${snap.tableNumber}/${snap.password}`;
   paintRemain(snap.remainingMs);
@@ -352,11 +367,11 @@ function renderTable(snap) {
   if (key !== state.visualKey) {
     state.visualKey = key;
     renderSeats(snap);
-    $("felt").classList.toggle("is-showdown", Boolean(snap.lastResult && !snap.street && snap.nextHandAt));
-    $("street-label").textContent = !snap.street && !snap.nextHandAt ? "等待开局" : "";
+    $("felt").classList.toggle("is-showdown", Boolean(snap.lastResult && !snap.street));
+    $("street-label").textContent = !snap.street && !snap.nextHandAt && !snap.lastResult ? "等待开局" : "";
     $("pot").innerHTML = snap.pot ? chipStackHTML(snap.pot) : `<span class="chip-amt">底池 0</span>`;
     const bannerBits = [];
-    if (snap.lastResult?.winners?.length && !snap.street && snap.nextHandAt) {
+    if (snap.lastResult?.winners?.length && !snap.street) {
       bannerBits.push(
         snap.lastResult.winners
           .filter((w) => w.amount > 0)
@@ -495,7 +510,7 @@ function pumpDeal() {
 function renderShowdown(snap) {
   const box = $("showdown");
   if (!box) return;
-  if (!snap.lastResult || snap.street || !snap.nextHandAt) {
+  if (!snap.lastResult || snap.street) {
     box.classList.add("hidden");
     if (snap.street || !snap.nextHandAt) state.showdownHand = null;
     return;
@@ -544,6 +559,15 @@ function renderShowdown(snap) {
   const bounty = snap.events.find((e) => e.type === "bounty");
   const squid = squidEventText(snap);
   $("sd-win").textContent = `${resultText}${bounty ? `　${nameOf(snap, bounty.playerId)} 获得 27 杂色奖励 ${fmtChips(bounty.amount)}` : ""}${squid ? `　${squid}` : ""}`;
+  const canNextHand = snap.seats.filter((seat) => seat?.sitting && seat.chips + seat.pendingChips > 0).length >= 2;
+  const pauseButton = $("sd-pause");
+  const nextNowButton = $("sd-next-now");
+  for (const button of [pauseButton, nextNowButton]) {
+    if (!button) continue;
+    button.classList.toggle("hidden", !canNextHand || !isAiHost(snap.tableNumber));
+    button.disabled = false;
+  }
+  if (pauseButton) pauseButton.textContent = snap.startPaused ? "继续下一局" : "暂停下一局";
   box.classList.remove("hidden");
   const won = Boolean(me && lr.winners.some((w) => w.id === me && w.amount > 0));
   const shown = Boolean(me && lr.shown?.[me]);
@@ -600,7 +624,9 @@ function updateCountdown(snap) {
   if (seatCd) seatCd.textContent = "";
   state.lastTickSec = null;
   if (!el) return;
-  if (snap.nextHandAt && !snap.street) {
+  if (snap.lastResult && !snap.street && !snap.nextHandAt) {
+    el.textContent = snap.startPaused ? "已暂停" : "下一局准备中";
+  } else if (snap.nextHandAt && !snap.street) {
     el.textContent = `下一手 ${Math.max(0, Math.ceil((snap.nextHandAt - Date.now()) / 1000))}s`;
   } else {
     el.textContent = "";
@@ -623,12 +649,18 @@ function squidEventText(snap) {
 
 function bindRaiseSlider() {
   const sl = $("raise-amt");
+  const direct = $("raise-input");
   const lab = $("raise-val");
   const btn = document.querySelector("#actions button[data-act='bet'], #actions button[data-act='raise']");
   if (!sl || !lab || !btn) return;
-  const paint = () => {
-    const n = Number(sl.value);
-    const allIn = n === Number(sl.max);
+  const min = Number(sl.min);
+  const max = Number(sl.max);
+  const clamp = (value) => Math.min(max, Math.max(min, Math.round(Number(value))));
+  const paint = (value = Number(sl.value)) => {
+    const n = clamp(value);
+    sl.value = String(n);
+    if (direct) direct.value = String(n);
+    const allIn = n === max;
     lab.textContent = fmtChips(n);
     const amount = btn.querySelector("[data-submit-amount]");
     const label = btn.querySelector("[data-submit-label]");
@@ -641,9 +673,15 @@ function bindRaiseSlider() {
     }
   };
   sl.addEventListener("input", () => {
-    document.querySelectorAll("#actions [data-preset]").forEach((button) => button.classList.remove("selected"));
-    paint();
+    document.querySelectorAll("#actions [data-preset], #actions [data-preset-bb]").forEach((button) => button.classList.remove("selected"));
+    paint(sl.value);
   });
+  direct?.addEventListener("input", () => {
+    if (direct.value === "") return;
+    const n = Number(direct.value);
+    if (Number.isFinite(n)) paint(n);
+  });
+  direct?.addEventListener("change", () => paint(direct.value));
   paint();
 }
 
@@ -674,10 +712,10 @@ function renderActions(snap) {
     const waitText =
       snap.me?.sitting && snap.me.chips === 0
         ? "未补码，不参与下一手"
-        : !snap.street && !snap.nextHandAt
-          ? "等待开局"
-          : snap.lastResult && !snap.street
-            ? "摊牌结算中"
+        : snap.lastResult && !snap.street
+          ? "摊牌结算中"
+          : !snap.street && !snap.nextHandAt
+            ? "等待开局"
             : snap.me?.sitting
               ? "等待行动"
               : "观战中，坐下后可参与下一手";
@@ -692,8 +730,8 @@ function renderActions(snap) {
   if (!act) state.raiseOpen = false;
   const amountControls = showAmount
     ? `<div class="amount-controls">
-        <div class="raise-presets"><button type="button" data-preset="0.333333">1/3</button><button type="button" data-preset="0.5">1/2</button><button type="button" data-preset="1">满池</button>${legal.canAllIn ? '<button type="button" data-preset="allin">All-in</button>' : ""}</div>
-        <label class="raise-ctl"><input type="range" id="raise-amt" aria-label="下注额" min="${min}" max="${legal.maxRaiseTo}" value="${min}" /><output id="raise-val">${fmtChips(min)}</output></label>
+        <div class="raise-presets"><button type="button" data-preset="0.333333">1/3</button><button type="button" data-preset="0.5">1/2</button><button type="button" data-preset="1">满池</button><button type="button" data-preset-bb="2">2BB</button><button type="button" data-preset-bb="3">3BB</button>${legal.canAllIn ? '<button type="button" data-preset="allin">All-in</button>' : ""}</div>
+        <label class="raise-ctl"><input type="range" id="raise-amt" aria-label="下注额" min="${min}" max="${legal.maxRaiseTo}" value="${min}" /><output id="raise-val">${fmtChips(min)}</output><input type="number" id="raise-input" aria-label="直接输入下注额" min="${min}" max="${legal.maxRaiseTo}" step="1" value="${min}" /></label>
       </div>`
     : "";
   const amount = amountControls && !mobile
@@ -782,6 +820,12 @@ async function leaveTable() {
   const sitting = Boolean(state.snapshot?.me?.sitting);
   const finished = state.snapshot?.status === "finished";
   const tableNumber = state.tableNumber;
+  if (state.aiSetupHolding) {
+    state.aiSetupHolding = false;
+    try { await setStartHold(false); }
+    catch { /* the hold has a server-side timeout */ }
+  }
+  $("ai-modal").classList.add("hidden");
   if (sitting && !finished && tableNumber) {
     try {
       await api("/api/cmd", {
@@ -954,18 +998,58 @@ function renderAiList() {
     : '<div class="ai-empty">还没有 AI 玩家</div>';
 }
 
-function openBotForm() {
-  $("ai-bot-form").reset();
-  showAiView("ai-bot-form", "添加 AI");
+function fallbackAiNickname() {
+  return `AI-${Math.floor(100 + Math.random() * 900)}`;
 }
 
-$("btn-ai").onclick = () => {
-  renderAiList();
-  showAiView("ai-list-view", "AI玩家");
-  $("ai-modal").classList.remove("hidden");
+async function openBotForm() {
+  $("ai-bot-form").reset();
+  const nickname = $("ai-nickname");
+  nickname.value = fallbackAiNickname();
+  showAiView("ai-bot-form", "添加 AI");
+  try {
+    const data = await api("/api/names");
+    if (nickname.value.startsWith("AI-")) nickname.value = data.nickname;
+  } catch {
+    // 本地随机昵称已可用
+  }
+}
+
+async function openAiModal() {
+  const wasPaused = Boolean(state.snapshot?.startPaused);
+  try {
+    await setStartHold(true);
+    state.aiSetupHolding = !wasPaused && Boolean(state.snapshot?.startPaused);
+    renderAiList();
+    showAiView("ai-list-view", "AI玩家");
+    $("ai-modal").classList.remove("hidden");
+  } catch (err) {
+    toast(err.message || "暂时无法暂停开局");
+  }
+}
+
+async function closeAiModal() {
+  $("ai-modal").classList.add("hidden");
+  if (state.aiSetupHolding) {
+    state.aiSetupHolding = false;
+    try { await setStartHold(false); }
+    catch (err) { toast(err.message || "无法开始下一局"); }
+  }
+}
+
+$("btn-ai").onclick = () => void openAiModal();
+$("ai-close").onclick = () => void closeAiModal();
+$("ai-done").onclick = () => void closeAiModal();
+$("sd-pause").onclick = async () => {
+  const on = !state.snapshot?.startPaused;
+  try { await setStartHold(on); }
+  catch (err) { toast(err.message || "无法切换下一局状态"); }
 };
-$("ai-close").onclick = () => $("ai-modal").classList.add("hidden");
-$("ai-add-open").onclick = openBotForm;
+$("sd-next-now").onclick = async () => {
+  try { await setStartHold(false); }
+  catch (err) { toast(err.message || "无法开始下一局"); }
+};
+$("ai-add-open").onclick = () => void openBotForm();
 document.querySelectorAll("[data-ai-back]").forEach((button) => { button.onclick = () => { renderAiList(); showAiView("ai-list-view", "AI玩家"); }; });
 $("ai-bot-form").onsubmit = (event) => {
   event.preventDefault();
@@ -1038,6 +1122,18 @@ $("actions").onclick = (e) => {
   if (closeAmount) {
     state.raiseOpen = false;
     renderActions(state.snapshot);
+    return;
+  }
+  const presetBb = e.target.closest("button[data-preset-bb]");
+  if (presetBb) {
+    const slider = $("raise-amt");
+    const legal = state.snapshot?.legal;
+    if (!slider || !legal) return;
+    const currentBet = Math.max(0, ...state.snapshot.seats.map((s) => s?.bet ?? 0));
+    const target = currentBet + Number(state.snapshot.config.bigBlind) * Number(presetBb.dataset.presetBb);
+    slider.value = String(Math.min(Number(slider.max), Math.max(Number(slider.min), Math.round(target))));
+    slider.dispatchEvent(new Event("input"));
+    presetBb.classList.add("selected");
     return;
   }
   const preset = e.target.closest("button[data-preset]");
