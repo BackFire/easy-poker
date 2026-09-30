@@ -673,7 +673,7 @@ function bindRaiseSlider() {
     }
   };
   sl.addEventListener("input", () => {
-    document.querySelectorAll("#actions [data-preset], #actions [data-preset-bb]").forEach((button) => button.classList.remove("selected"));
+    document.querySelectorAll("#actions [data-preset], #actions [data-preset-multiple]").forEach((button) => button.classList.remove("selected"));
     paint(sl.value);
   });
   direct?.addEventListener("input", () => {
@@ -730,7 +730,7 @@ function renderActions(snap) {
   if (!act) state.raiseOpen = false;
   const amountControls = showAmount
     ? `<div class="amount-controls">
-        <div class="raise-presets"><button type="button" data-preset="0.333333">1/3</button><button type="button" data-preset="0.5">1/2</button><button type="button" data-preset="1">满池</button><button type="button" data-preset-bb="2">2BB</button><button type="button" data-preset-bb="3">3BB</button>${legal.canAllIn ? '<button type="button" data-preset="allin">All-in</button>' : ""}</div>
+        <div class="raise-presets"><button type="button" data-preset="0.333333">1/3</button><button type="button" data-preset="0.5">1/2</button><button type="button" data-preset="1">满池</button><button type="button" data-preset-multiple="2">2x</button><button type="button" data-preset-multiple="3">3x</button>${legal.canAllIn ? '<button type="button" data-preset="allin">All-in</button>' : ""}</div>
         <label class="raise-ctl"><input type="range" id="raise-amt" aria-label="下注额" min="${min}" max="${legal.maxRaiseTo}" value="${min}" /><output id="raise-val">${fmtChips(min)}</output><input type="number" id="raise-input" aria-label="直接输入下注额" min="${min}" max="${legal.maxRaiseTo}" step="1" value="${min}" /></label>
       </div>`
     : "";
@@ -1124,15 +1124,17 @@ $("actions").onclick = (e) => {
     renderActions(state.snapshot);
     return;
   }
-  const presetBb = e.target.closest("button[data-preset-bb]");
-  if (presetBb) {
+  const presetMultiple = e.target.closest("button[data-preset-multiple]");
+  if (presetMultiple) {
     const slider = $("raise-amt");
     const legal = state.snapshot?.legal;
     if (!slider || !legal) return;
-    const target = Number(state.snapshot.config.bigBlind) * Number(presetBb.dataset.presetBb);
+    const currentBet = Math.max(0, ...state.snapshot.seats.map((s) => s?.bet ?? 0));
+    const base = currentBet || Number(state.snapshot.config.bigBlind);
+    const target = base * Number(presetMultiple.dataset.presetMultiple);
     slider.value = String(Math.min(Number(slider.max), Math.max(Number(slider.min), Math.round(target))));
     slider.dispatchEvent(new Event("input"));
-    presetBb.classList.add("selected");
+    presetMultiple.classList.add("selected");
     return;
   }
   const preset = e.target.closest("button[data-preset]");
