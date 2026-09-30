@@ -126,6 +126,7 @@ describe("client UI source (shipped public assets)", () => {
     assert.match(js, /data-preset="1"/);
     assert.match(js, /data-preset-bb="2"/);
     assert.match(js, /data-preset-bb="3"/);
+    assert.match(js, /const target = Number\(state\.snapshot\.config\.bigBlind\) \* Number\(presetBb\.dataset\.presetBb\)/);
     assert.match(js, /id="raise-input"/);
     assert.match(html, /id="sd-pause"/);
     assert.match(html, /id="sd-next-now"/);

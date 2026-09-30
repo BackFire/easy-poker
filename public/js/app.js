@@ -1129,8 +1129,7 @@ $("actions").onclick = (e) => {
     const slider = $("raise-amt");
     const legal = state.snapshot?.legal;
     if (!slider || !legal) return;
-    const currentBet = Math.max(0, ...state.snapshot.seats.map((s) => s?.bet ?? 0));
-    const target = currentBet + Number(state.snapshot.config.bigBlind) * Number(presetBb.dataset.presetBb);
+    const target = Number(state.snapshot.config.bigBlind) * Number(presetBb.dataset.presetBb);
     slider.value = String(Math.min(Number(slider.max), Math.max(Number(slider.min), Math.round(target))));
     slider.dispatchEvent(new Event("input"));
     presetBb.classList.add("selected");
